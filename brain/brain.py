@@ -20,7 +20,9 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from anthropic import AnthropicBedrock
+# from anthropic import AnthropicBedrock
+from langchain_litellm import ChatLiteLLM
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from brain.memory import MemoryStore
 
@@ -127,8 +129,11 @@ class Brain:
         self.memory = MemoryStore(memory_dir=memory_dir)
 
         # AWS Bedrock
-        self._token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
-        self._region = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+        # self._token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
+        # self._region = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+
+        self.model_name = os.environ.get("MODEL_NAME", "openai/gpt-4o")
+        self.llm = ChatLiteLLM(model=self.model_name, temperature=0.3)
 
     async def start(self) -> None:
         """Start the continuous reasoning loop."""
@@ -214,6 +219,7 @@ class Brain:
         parts.append("请根据以上信息，输出你的决策JSON。")
         return "\n\n".join(parts)
 
+    '''
     def _call_llm(self, prompt: str) -> str:
         """Call Claude via AWS Bedrock (blocking, run in executor)."""
         client = AnthropicBedrock(
@@ -227,6 +233,17 @@ class Brain:
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
+    '''
+
+    # 替换 _call_llm 方法
+    def _call_llm(self, prompt: str) -> str:
+        """调用 LiteLLM 进行推理决策。"""
+        messages = [
+            SystemMessage(content=BRAIN_SYSTEM_PROMPT),
+            HumanMessage(content=prompt)
+        ]
+        response = self.llm.invoke(messages)
+        return response.content
 
     def _parse_decision(self, response: str) -> dict | None:
         """Parse the LLM response into a decision dict."""

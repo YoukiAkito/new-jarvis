@@ -25,9 +25,11 @@ import subprocess
 import time
 import uuid
 
-import anthropic
-from google import genai
-from google.genai import types as gtypes
+# import anthropic
+# from google import genai
+# from google.genai import types as gtypes
+from langchain_litellm import ChatLiteLLM
+from langchain_core.messages import HumanMessage
 
 try:
     import cv2
@@ -216,7 +218,10 @@ class Reactor:
         self._last_learn_time = 0
 
         # Gemini client (observation)
-        self._gemini = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+        # self._gemini = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+        # 使用 LiteLLM 统一接口，通过环境变量 MODEL_NAME 指定模型（例如 "openai/gpt-4o"、"anthropic/claude-3-sonnet-20240229"）
+        model_name = os.environ.get("MODEL_NAME", "openai/gpt-4o")
+        self.llm = ChatLiteLLM(model=model_name, temperature=0.3)
 
         # Anthropic client (execution, if needed)
         # self._opus = anthropic.AnthropicBedrock(aws_region=os.environ.get("AWS_REGION", "ap-northeast-1"))
@@ -746,6 +751,7 @@ URL: {url}
 
 只输出 Lark Markdown，不要代码块包裹。"""
 
+        '''
         # Build multimodal parts — include screenshot for visual analysis
         parts = [gtypes.Part(text=text_prompt)]
         if screenshot_path and os.path.exists(screenshot_path):
@@ -757,7 +763,7 @@ URL: {url}
                 ))
             except Exception:
                 pass
-
+                
         # Retry on transient SSL/network errors
         for attempt in range(3):
             try:
@@ -774,6 +780,37 @@ URL: {url}
                     continue
                 logger.error(f"Gemini failed for {title}: {e}")
                 return None
+        '''
+
+        # 构建多模态消息
+        langchain_content = [{"type": "text", "text": text_prompt}]
+        if screenshot_path and os.path.exists(screenshot_path):
+            try:
+                with open(screenshot_path, "rb") as f:
+                    img_b64 = base64.b64encode(f.read()).decode()
+                data_url = f"data:image/png;base64,{img_b64}"
+                langchain_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_url}
+                })
+            except Exception:
+                pass
+
+        message = HumanMessage(content=langchain_content)
+
+        # 重试逻辑
+        for attempt in range(3):
+            try:
+                response = self.llm.invoke([message])
+                return response.content
+            except Exception as e:
+                if attempt < 2 and any(k in str(e) for k in ("SSL", "EOF", "Connection", "reset")):
+                    logger.warning(f"LiteLLM retry {attempt+1}/2 for {title}: {e}")
+                    time.sleep(2)
+                    continue
+                logger.error(f"LiteLLM failed for {title}: {e}")
+                return None
+        return None
 
     def _fetch_url_content(self, url: str) -> str:
         """Fetch URL content via curl. Blocking."""
@@ -1111,6 +1148,7 @@ URL: {url}
 
     # ── Observe LLM (Haiku) ──────────────────────────────────
 
+    '''
     def _call_observe(self, content: list[dict], system_prompt: str) -> str:
         """Gemini Flash observation call. Blocking."""
         # Convert Anthropic-style content to Gemini Parts
@@ -1137,6 +1175,27 @@ URL: {url}
             ),
         )
         return response.text
+    '''
+    def _call_observe(self, content: list[dict], system_prompt: str) -> str:
+        """调用 LiteLLM (支持任意模型) 进行观察推理。"""
+        # 构建 LangChain 消息格式
+        langchain_content = []
+        for item in content:
+            if item.get("type") == "text":
+                langchain_content.append({"type": "text", "text": item["text"]})
+            elif item.get("type") == "image":
+                src = item["source"]
+                # 图片数据已经是 base64，构造 data URL
+                data_url = f"data:{src['media_type']};base64,{src['data']}"
+                langchain_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_url}
+                })
+        # 将 system prompt 融合到 user message 中（LiteLLM 不支持单独的 system 参数时可用此方式）
+        full_prompt = system_prompt + "\n\n## 当前输入\n" + str(langchain_content)
+        message = HumanMessage(content=full_prompt)
+        response = self.llm.invoke([message])
+        return response.content
 
     # ── System Prompt ────────────────────────────────────────
 
@@ -1275,6 +1334,7 @@ URL: {url}
 要求: 提取模式，不超过10条，输出 JSON: {{"rules": ["...", "..."]}}"""
 
         try:
+            '''
             resp = self._gemini.models.generate_content(
                 model=LEARN_MODEL,
                 contents=prompt,
@@ -1284,6 +1344,11 @@ URL: {url}
                 ),
             )
             text = resp.text.strip()
+            '''
+            # 使用 LiteLLM 替代 Gemini
+            response = self.llm.invoke([HumanMessage(content=prompt)])
+            text = response.content.strip()
+
             result = None
             try:
                 result = json.loads(text)

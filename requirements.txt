@@ -1,8 +1,9 @@
 # Jarvis — Proactive AI Assistant
 
 # LLM
-anthropic>=0.40.0
-google-genai>=1.0.0
+# anthropic>=0.40.0
+# google-genai>=1.0.0
+langchain-litellm
 
 # Image compression for Haiku vision
 Pillow>=10.0.0

@@ -30,7 +30,9 @@ import time
 import uuid
 
 import numpy as np
-from anthropic import AnthropicBedrock
+# from anthropic import AnthropicBedrock
+from langchain_litellm import ChatLiteLLM
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from brain.memory import MemoryStore
 from executor.overlay import NativeOverlay
@@ -137,8 +139,11 @@ class StreamingReactor:
         self._pil_available = None
 
         # Bedrock for Haiku vision
-        self._bedrock_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
-        self._bedrock_region = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+        # self._bedrock_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
+        # self._bedrock_region = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+        # LiteLLM视觉模型
+        self.vision_model_name = os.environ.get("VISION_MODEL_NAME", "openai/gpt-4o")  
+        self.vision_llm = ChatLiteLLM(model=self.vision_model_name, temperature=0.2)
 
         # Feedback / preference learning
         self._feedback_count_since_learn = 0
@@ -360,6 +365,7 @@ class StreamingReactor:
             except Exception as e:
                 logger.warning(f"Vision inject failed: {e}")
 
+    '''
     def _describe_vision(self, content: list[dict]) -> str:
         """Haiku describes camera+desktop images. Blocking."""
         client = AnthropicBedrock(
@@ -373,6 +379,29 @@ class StreamingReactor:
             messages=[{"role": "user", "content": content}],
         )
         return resp.content[0].text.strip()
+        '''
+    
+    def _describe_vision(self, content: list[dict]) -> str:
+        """使用 LiteLLM 描述摄像头+桌面截图（替代 Haiku）。"""
+        # 转换内容为 LangChain 多模态格式
+        langchain_content = []
+        for item in content:
+            if item.get("type") == "text":
+                langchain_content.append({"type": "text", "text": item["text"]})
+            elif item.get("type") == "image":
+                src = item["source"]
+                data_url = f"data:{src['media_type']};base64,{src['data']}"
+                langchain_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_url}
+                })
+
+        messages = [
+            SystemMessage(content=VISION_PROMPT),
+            HumanMessage(content=langchain_content)
+        ]
+        response = self.vision_llm.invoke(messages)
+        return response.content.strip()
 
     # ── Response Listener ────────────────────────────────────
 

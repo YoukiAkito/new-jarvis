@@ -19,8 +19,10 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from google import genai
-from google.genai import types as gtypes
+# from google import genai
+# from google.genai import types as gtypes
+from langchain_litellm import ChatLiteLLM
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from brain.memory import MemoryStore
 from executor.overlay import NativeOverlay
@@ -69,7 +71,10 @@ class Executor:
         self.memory = MemoryStore(memory_dir=memory_dir)
 
         # Gemini client
-        self._gemini = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+        # self._gemini = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+        # LiteLLM
+        self.model_name = os.environ.get("MODEL_NAME", "openai/gpt-4o")
+        self.llm = ChatLiteLLM(model=self.model_name, temperature=0.3)
 
     async def start(self) -> None:
         """Start watching for new decisions."""
@@ -196,6 +201,7 @@ class Executor:
         self._save_result(decision, result, filename)
         logger.info(f"Executed: {action} ({len(result)} chars)")
 
+    '''
     def _call_llm(self, decision: dict) -> str:
         """Call LLM to execute the decision (blocking)."""
         action = decision.get("action", "")
@@ -222,6 +228,30 @@ class Executor:
             ),
         )
         return response.text
+    '''
+    
+    def _call_llm(self, decision: dict) -> str:
+        """调用 LiteLLM 执行决策（作为后备方案）。"""
+        action = decision.get("action", "")
+        reason = decision.get("reason", "")
+        plan = decision.get("plan", "")
+        params = json.dumps(decision.get("params", {}), ensure_ascii=False)
+
+        prompt = f"""## 要执行的决策
+
+    **行动**: {action}
+    **原因**: {reason}
+    **计划**: {plan}
+    **参数**: {params}
+
+    请直接执行以上决策，产出对用户有价值的内容。"""
+
+        messages = [
+            SystemMessage(content=EXECUTOR_SYSTEM_PROMPT),
+            HumanMessage(content=prompt)
+        ]
+        response = self.llm.invoke(messages)
+        return response.content
 
     def _save_result(self, decision: dict, result: str, decision_file: str) -> None:
         """Save execution result to file and memory."""

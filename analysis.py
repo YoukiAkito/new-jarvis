@@ -19,7 +19,9 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from anthropic import AnthropicBedrock
+# from anthropic import AnthropicBedrock
+from langchain_litellm import ChatLiteLLM
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from input import InputCollector
 
@@ -67,8 +69,12 @@ class LLMAnalysis:
         self._round = 0
 
         # AWS Bedrock with API Key
-        self._token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
-        self._region = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+        # self._token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
+        # self._region = os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+
+        # LiteLLM
+        self.model_name = os.environ.get("MODEL_NAME", "openai/gpt-4o")
+        self.llm = ChatLiteLLM(model=self.model_name, temperature=0.3)
 
     async def start(self) -> None:
         """Start the periodic analysis loop."""
@@ -203,7 +209,8 @@ class LLMAnalysis:
 
         return content
 
-    def _call_llm(self, content: list[dict]) -> str:
+    '''
+        def _call_llm(self, content: list[dict]) -> str:
         """Call Claude via AWS Bedrock with API Key (blocking, run in executor)."""
         client = AnthropicBedrock(
             aws_region=self._region,
@@ -216,6 +223,31 @@ class LLMAnalysis:
             messages=[{"role": "user", "content": content}],
         )
         return response.content[0].text
+    '''
+
+    # 替换 _call_llm 方法
+    def _call_llm(self, content: list[dict]) -> str:
+        """调用 LiteLLM（支持任意模型）进行用户状态分析。"""
+        # 构建 LangChain 消息格式（支持多模态）
+        langchain_content = []
+        for item in content:
+            if item.get("type") == "text":
+                langchain_content.append({"type": "text", "text": item["text"]})
+            elif item.get("type") == "image":
+                src = item["source"]
+                data_url = f"data:{src['media_type']};base64,{src['data']}"
+                langchain_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": data_url}
+                })
+
+        # System prompt 使用 SystemMessage
+        messages = [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=langchain_content)
+        ]
+        response = self.llm.invoke(messages)
+        return response.content
 
     async def stop(self) -> None:
         self._running = False
