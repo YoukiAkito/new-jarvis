@@ -69,9 +69,18 @@ pip install -r requirements.txt
 在项目根目录创建 `.env` 文件：
 
 ```bash
-# AWS Bedrock — Claude 多模态推理（视觉 + 文字）
-AWS_BEARER_TOKEN_BEDROCK=your_token_here
-AWS_DEFAULT_REGION=ap-northeast-1
+# 通用模型名称（LiteLLM 格式）
+MODEL_NAME=openai/gpt-4o
+# 或 MODEL_NAME=anthropic/claude-3-sonnet-20240229
+# 或 MODEL_NAME=google/gemini-1.5-pro
+
+# 可选：为视觉任务单独指定模型（streaming_reactor.py）
+VISION_MODEL_NAME=openai/gpt-4o
+
+# 对应模型的 API Key
+OPENAI_API_KEY=your_api_key
+# 或 ANTHROPIC_API_KEY=xxx
+# 或 GOOGLE_API_KEY=xxx
 
 # 讯飞 iFlytek — 实时中文语音识别（WebSocket 流式 ASR）
 IFLYTEK_APP_ID=your_app_id
